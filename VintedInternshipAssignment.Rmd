@@ -1,0 +1,275 @@
+---
+title: "Vinted Data Scientist Internship Homework"
+output: html_notebook
+author: "Sathya Sudha Murugan"
+---
+---
+## Goal <- To make the seller happy
+## Problem Statement <- Which factors affect the liquidity
+## Definition:
+##    Liquidity <- How quickly the seller sells his product with no or minimal loss.
+---
+
+```{r}
+#Loading the required libraries
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(randomForest)
+library(caTools)
+library(DT)
+```
+```{r}
+#read the vinted dataset
+vData <- read.csv("C:\\Users\\sathy\\OneDrive\\Desktop\\product_ds_hw_data.csv")
+head(vData)
+```
+
+
+```{r}
+#Display the structure of the Vinted Dataset
+str(vData)
+```
+
+```{r}
+#Converting the type of Created_at, sale_time and declined_at to date
+vData$'created_at' <- as.Date(as.factor(vData$created_at))
+vData$'sale_time' <- as.Date(as.factor(vData$sale_time))
+vData$'declined_at' <- as.Date(as.factor(vData$declined_at))
+
+#Calculating the time interval using lubricate package
+time.interval <- vData$created_at %--% vData$sale_time
+vData$sold_period <- as.duration(time.interval) / ddays(1)
+vData$sold_period[is.na(vData$sold_period)] <- 0
+
+#Create a feature loss(Cost Price - Selling Price)
+vData$loss <- vData$listing_price_eur_fixed - vData$gmv_eur_fixed
+
+#Creating new feature Happy to show if seller was happy & the seller is happy if the item is sold and the loss is zero.
+vData$Happy = ifelse(vData$loss>0, "No", "Yes")
+
+#Deriving a class attribute from sold period to say if the item was sold or not 
+vData$sold = ifelse(vData$sold_period == 0,"No","Yes")
+
+# Print Structure of the Data
+summary(vData)
+```
+
+```{r}
+#Plot Proportion of items with respect to Status
+ggplot(vData, aes(status))+
+  geom_bar(aes(fill = status))+
+   scale_x_discrete(labels= c("New with tags", "New", "Satisfactory","Very Good","Good"))+
+  scale_y_discrete()+
+  ggtitle("Proportion of Items listed with specific status")+
+  theme(legend.position = "none")
+```
+
+##The items having satisfactory status are listed more compared to other status.
+
+```{r}
+genders <- filter(vData, gender == "M" |  gender == "F" | gender == "O")
+ggplot(genders, aes(gender))+
+  geom_bar(aes(fill = gender))+
+  ggtitle("Proportion of seller based on Gender")+
+  theme(axis.text.y = element_blank(),legend.position = "none")
+```
+##The Count of Female sellers are more than male and others.
+
+```{r}
+#Creating  a table to summarize data with respect to country
+country <- vData %>% group_by(country_code) %>%
+  dplyr::summarise(Total = n())
+datatable(country)
+#Plot pie plot to show the proportion of sellers in country
+ggplot(country, aes(x = "",y = Total,fill = country_code))+
+  geom_bar(stat="identity", width=1,color="black")+
+   coord_polar("y", start=0)+
+  ggtitle("Proportion of Seller based on Country")+
+  theme_void()+
+  scale_fill_brewer(palette="Set2")
+```
+##The percentage of sellers are more in France compared to other two country.
+
+```{r}
+#Create a subset of vinted data with colour and sold period attribute
+dt1 <- subset(vData, select = c(status,sold_period))
+dt1 <- na.omit(dt1)
+#Creating a table by grouping status and summarizing the mean window period
+dt1 <- dt1 %>%
+  group_by(status) %>%
+  dplyr::summarise(MeanPeriod = mean(sold_period))
+datatable(dt1)
+#Plot the  mean window period between item posted date and sold date
+plot(dt1,main = "The Mean Window Period between item posted and sold")
+```
+##The plot depicts that the new items with tags sold are having more window period when compared to other status. 
+##This can be due to the high rate, as new products are better than second hand product though it as tag, and it would certainly have the same price.
+##Further, The good and very good items are sold with less window period.
+```{r}
+#Create a subset of vinted data with colour and sold period attribute
+dt2 <- subset(vData, select = c(color_primary,sold_period))
+dt2 <- na.omit(dt2)
+#Creating the datable with above subset data
+dt2 <- dt2 %>%
+  group_by(color_primary) %>%
+  dplyr::summarise(MeanPeriod = mean(sold_period))
+datatable(dt2)
+#Plot the window period with respect to colour
+ggplot(dt2,aes(color_primary,MeanPeriod,color = color_primary))+
+  geom_point()+
+  theme(axis.text.x = element_text(angle = 90))+
+  theme(legend.position = "none")
+```
+
+##As the plot depicts, the basic colours like blue, green , red , white , yellow etc,. are having less window period when compared to colours like burgandy , brown, purple and lilac.
+
+```{r}
+#Creating a subset of Vinted data 
+vvData <- subset(vData, select = -c(portal,declined_at,first_listing_local_date,registration_platform,registration_local_date,window_items_listed,window_items_bought,window_items_sold,listings_in_first_7days_detailed,loss))
+vvData <- na.omit(vvData)
+#remove NA values
+dim(vvData)
+
+```
+```{r}
+#Plot status and group by sold or not
+ggplot(vvData,aes(status))+
+  geom_bar(aes(fill=sold))
+```
+##The plot shows that the satisfactory(mint) items are listed and sold in large proportion when compared to other items. And new items with tags  and good items are having very less proportion of items not sold.
+Status is not having much impact accopording to the plot
+```{r}
+#Plot Status grouped by Happy or not
+ggplot(vvData,aes(status))+
+  geom_bar(aes(fill=Happy))+
+  ggtitle("Count of Status grouped by Happy or Not")
+```
+##The graph emphasises that every status is facing greater than or equal to 50 percent loss. which means it is sold lesser than the listed price.
+```{r}
+#Plot listing quality string grouped by sold or not
+ggplot(vData,aes(listing_quality_string, xlab = " Quality of string listed"))+
+  geom_bar(aes(fill=sold))+
+  ggtitle("Count of Items based on quality of listed string")+
+  scale_x_discrete(labels = c("Long Description", "Long Description with more than 2 photos", "More than 2 photos", "No Descrition"))+
+  theme(axis.text.x = element_text(angle = 90))+
+  scale_y_discrete()
+```
+##The graph proves that the item with no description are having less chances to be sold.
+ The items with long descriotion and more than 2 photos have comparitively high sold rate.
+
+```{r}
+#Plot  items count based on catalog category 1
+ggplot(vData,aes(catalog_code_1))+
+  theme(axis.text.x = element_text(angle = 90))+
+  geom_bar(aes(fill=sold))
+#Plot  items count based on catalog category 2
+ggplot(vData,aes(catalog_code_2))+
+  theme(axis.text.x = element_text(angle = 90))+
+  geom_bar(aes(fill=sold))
+#Plot  items count based on catalog category 3
+ggplot(vvData,aes(catalog_code_3))+
+  theme(axis.text.x = element_text(angle = 90))+
+  geom_bar(aes(fill=sold))
+#Plot  items count based on catalog category 4
+ggplot(vvData,aes(catalog_code_4))+
+  theme(axis.text.x = element_text(angle = 90))+
+  geom_bar(aes(fill=sold))
+#Plot  items count based on catalog category 5
+ggplot(vvData,aes(catalog_code_5))+
+  theme(axis.text.x = element_text(angle = 90))+
+  geom_bar(aes(fill=sold))
+
+```
+##Most of the sellers are women as depicted from past graphs. Here we see most of the women _root items are not sold. Though men wear has less listings, the sold rate is nearly equal to women and children wear which is around 25 percent.
+```{r}
+#Create a subset of data to find if seller is HAPPY or NOT
+newData <- subset(vData, select = -c(portal,id,sale_time, declined_at,first_listing_local_date,registration_platform,registration_local_date,window_items_listed,window_items_bought,window_items_sold,listings_in_first_7days_detailed,loss,sold))
+#Remove NA values
+newData <- na.omit(newData)
+#Type conversion
+newData$Happy <- as.factor(as.character(newData$Happy))
+newData$status <- as.integer(as.factor(newData$status))
+newData$brand <- as.integer(as.factor(newData$brand))
+newData$brand_is_verified <- as.integer(as.factor(newData$brand_is_verified))
+newData$listing_quality_string <- as.integer(as.factor(newData$listing_quality_string))
+newData$catalog_code_1 <- as.integer(as.factor(newData$catalog_code_1))
+newData$catalog_code_2 <- as.integer(as.factor(newData$catalog_code_2))
+newData$catalog_code_3 <- as.integer(as.factor(newData$catalog_code_3))
+newData$catalog_code_4 <- as.integer(as.factor(newData$catalog_code_4))
+newData$catalog_code_5 <- as.integer(as.factor(newData$catalog_code_5))
+newData$listing_platform <- as.integer(as.factor(newData$listing_platform))
+newData$gender <- as.integer(as.factor(newData$gender))
+newData$color_primary <- as.integer(as.factor(newData$color_primary))
+newData$country_code <- as.integer(as.factor(newData$country_code))
+#Print Summary of new subset data
+summary(newData)
+```
+
+
+```{r}
+#Split the data into train and test set
+sample = sample.split(newData$Happy, SplitRatio = .70)
+train = subset(newData, sample == TRUE)
+test  = subset(newData, sample == FALSE)
+#Train the model using train data
+rf <- randomForest(Happy ~ ., data=train)
+rf
+```
+
+
+```{r}
+#Plot the Random Forest Error
+plot(rf, main = "Random Forest Error")
+```
+
+```{r}
+#Plot the Variable Importance Plot
+varImpPlot(rf, bg = "skyblue", main = "Variable Importance Plot in terms of HAPPY or NOT")
+```
+
+##The listing price,deal accepeted price, sold period, the positive feedcount plays a major role in deciding if the seller was HAPPY or NOT.
+ 
+```{r}
+#Create a subet of data to classify if Items where SOLD or NOT
+sData <- subset(vData, select = -c(portal,declined_at,first_listing_local_date,registration_platform,registration_local_date,window_items_listed,window_items_bought,window_items_sold,listings_in_first_7days_detailed,loss,id,created_at,sale_time,sold_period,Happy))
+#remove na values
+sData <- na.omit(sData)
+#type conversions
+sData$sold <- as.factor(as.character(sData$sold))
+sData$status <- as.integer(as.factor(sData$status))
+sData$brand <- as.integer(as.factor(sData$brand))
+sData$brand_is_verified <- as.integer(as.factor(sData$brand_is_verified))
+sData$listing_quality_string <- as.integer(as.factor(sData$listing_quality_string))
+sData$catalog_code_1 <- as.integer(as.factor(sData$catalog_code_1))
+sData$catalog_code_2 <- as.integer(as.factor(sData$catalog_code_2))
+sData$catalog_code_3 <- as.integer(as.factor(sData$catalog_code_3))
+sData$catalog_code_4 <- as.integer(as.factor(sData$catalog_code_4))
+sData$catalog_code_5 <- as.integer(as.factor(sData$catalog_code_5))
+sData$listing_platform <- as.integer(as.factor(sData$listing_platform))
+sData$gender <- as.integer(as.factor(sData$gender))
+sData$color_primary <- as.integer(as.factor(sData$color_primary))
+sData$country_code <- as.integer(as.factor(sData$country_code))
+#split the data into train and test set
+sample = sample.split(sData$sold, SplitRatio = .70)
+train = subset(sData, sample == TRUE)
+test  = subset(sData, sample == FALSE)
+#train the model
+rf2 <- randomForest(sold ~ ., data=train)
+#plot the variable importance plot
+varImpPlot(rf2,bg = "skyblue", main = "Variable Importance Plot in terms of SOLD or NOT")
+```
+##The Experience(lister_nth_listing), total positive feedback count, the cost price and brand are the Primary factors which decided if the item was sold or not.
+The secondary factors are the catalog category, color, negative feedback count, status and quality of listing string.
+
+##############################################################################################Therefore, The seller must maintain a good feedback record, mention a genuine price.
+It would be appreciated if teh seller can give long description with more than 2 photos.
+This way the liquidity can be increased.
+
+#####################    Thank You
+
+
+
+
+
