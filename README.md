@@ -1,1 +1,1 @@
-# EDA-of-Vinetd-Data
+# EDA-of-Vinted-Data
